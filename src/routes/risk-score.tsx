@@ -1,0 +1,229 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMutation } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Loader2, Smartphone } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
+import { ProtectedRoute } from "@/components/protected-route";
+import { Button } from "@/components/ui/button";
+import { getApiErrorMessage } from "@/lib/api";
+import { draft, formatRWF, scoreInvoice, type RiskCheck } from "@/lib/zamuka-data";
+
+export const Route = createFileRoute("/risk-score")({
+  head: () => ({
+    meta: [
+      { title: "AI Risk Score — ZamukaPay" },
+      {
+        name: "description",
+        content:
+          "Live AI risk scoring of your invoice: buyer payment history, relationship age and verification.",
+      },
+      { property: "og:title", content: "AI Risk Score — ZamukaPay" },
+      {
+        property: "og:description",
+        content: "See your advance offer, fee and MoMo payout in seconds.",
+      },
+    ],
+  }),
+  component: RiskScore,
+});
+
+// Shown while the real checks are still in flight — same 4 labels the API returns, no results yet.
+const PENDING_CHECKS: RiskCheck[] = [
+  { label: "Buyer payment history", result: "" },
+  { label: "Relationship age", result: "" },
+  { label: "Invoice vs average", result: "" },
+  { label: "Buyer verification", result: "" },
+];
+
+const RECOMMENDATION_BADGE = {
+  APPROVE: { label: "LOW RISK", className: "bg-success/15 text-success" },
+  REVIEW: { label: "MEDIUM RISK", className: "bg-highlight/15 text-highlight" },
+  DECLINE: { label: "HIGH RISK", className: "bg-destructive/15 text-destructive" },
+} as const;
+
+function RiskScore() {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [displayScore, setDisplayScore] = useState(0);
+
+  const scoreMutation = useMutation({
+    mutationFn: () => scoreInvoice(draft.invoiceId as number),
+  });
+
+  // Guards against firing the mutation twice for one mount (e.g. React dev
+  // double-invoke) — two concurrent scoring requests for the same invoice
+  // can otherwise race on the backend.
+  const hasStarted = useRef(false);
+
+  useEffect(() => {
+    if (draft.invoiceId == null) {
+      navigate({ to: "/invoice-new" });
+      return;
+    }
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+    scoreMutation.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const result = scoreMutation.data;
+  const checks = result?.checks ?? PENDING_CHECKS;
+
+  // Stagger the reveal of each check row — but only once we actually have a result to show.
+  useEffect(() => {
+    if (!result) return;
+    const timers = checks.map((_, i) => setTimeout(() => setStep(i + 1), 700 * (i + 1)));
+    const done = setTimeout(() => setStep(checks.length + 1), 700 * (checks.length + 1));
+    return () => {
+      timers.forEach(clearTimeout);
+      clearTimeout(done);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+
+  useEffect(() => {
+    if (!result || step <= checks.length) return;
+    let current = 0;
+    const target = result.overall_score;
+    const interval = setInterval(() => {
+      current += 2;
+      setDisplayScore(Math.min(current, target));
+      if (current >= target) clearInterval(interval);
+    }, 20);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, result]);
+
+  const scored = !!result && step > checks.length;
+  const circumference = 2 * Math.PI * 52;
+  const badge = result ? RECOMMENDATION_BADGE[result.recommendation] : null;
+
+  return (
+    <ProtectedRoute>
+      <AppShell role="Supplier" who="Umucyo Fresh Produce Ltd">
+        <div className="mx-auto max-w-2xl">
+          <h1 className="text-3xl font-extrabold tracking-tight">Scoring invoice {draft.number}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {draft.buyer} · {formatRWF(draft.amount)} · due {draft.dueDate}
+          </p>
+
+          {scoreMutation.isError && (
+            <section className="panel mt-6 flex flex-col items-center gap-3 p-6 text-center">
+              <AlertTriangle className="size-8 text-destructive" />
+              <p className="text-sm text-destructive">{getApiErrorMessage(scoreMutation.error)}</p>
+              <Button variant="outline" onClick={() => scoreMutation.mutate()}>
+                Try again
+              </Button>
+            </section>
+          )}
+
+          {!scoreMutation.isError && (
+            <section className="panel mt-6 divide-y divide-border/70 p-2">
+              {checks.map((check, i) => {
+                const complete = !!result && step > i;
+                return (
+                  <div key={check.label} className="flex items-center gap-3 px-4 py-4">
+                    <span
+                      className={`flex size-8 items-center justify-center rounded-full transition-colors ${
+                        complete
+                          ? "bg-success/15 text-success"
+                          : "bg-secondary text-muted-foreground"
+                      }`}
+                    >
+                      {complete ? (
+                        <Check className="size-4" />
+                      ) : (
+                        <Loader2 className="size-4 animate-spin" />
+                      )}
+                    </span>
+                    <p className="flex-1 text-sm font-medium">{check.label}</p>
+                    <p
+                      className={`text-sm font-semibold transition-opacity ${
+                        complete ? "text-success opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      ✓ {check.result}
+                    </p>
+                  </div>
+                );
+              })}
+            </section>
+          )}
+
+          {scored && result && badge && result.recommendation !== "DECLINE" && (
+            <section className="panel mt-6 flex flex-col items-center gap-4 p-6 text-center rise-in">
+              <div className="relative size-32">
+                <svg viewBox="0 0 120 120" className="size-32 -rotate-90">
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    fill="none"
+                    stroke="var(--secondary)"
+                    strokeWidth="12"
+                  />
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    fill="none"
+                    stroke="var(--success)"
+                    strokeWidth="12"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={circumference * (1 - displayScore / 100)}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-extrabold">{displayScore}</span>
+                  <span className="text-xs text-muted-foreground">/ 100</span>
+                </div>
+              </div>
+              <span
+                className={`rounded-full px-4 py-1.5 text-sm font-bold tracking-wide ${badge.className}`}
+              >
+                {badge.label}
+              </span>
+
+              <dl className="mt-2 w-full space-y-3 text-left">
+                <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-4 py-3">
+                  <dt className="text-sm text-muted-foreground">Advance approved</dt>
+                  <dd className="font-semibold">{formatRWF(result.advance_amount)}</dd>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-4 py-3">
+                  <dt className="text-sm text-muted-foreground">Fee ({result.fee_percentage}%)</dt>
+                  <dd className="font-semibold text-highlight">− {formatRWF(result.fee_amount)}</dd>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-success/40 bg-success/10 px-4 py-3">
+                  <dt className="text-sm font-medium">You receive via MoMo</dt>
+                  <dd className="text-lg font-extrabold text-success">
+                    {formatRWF(result.net_amount)}
+                  </dd>
+                </div>
+              </dl>
+
+              <Button
+                className="h-12 w-full text-base font-semibold shadow-[var(--shadow-glow)]"
+                onClick={() => navigate({ to: "/payout" })}
+              >
+                <Smartphone className="size-5" /> Confirm &amp; Receive via MoMo
+              </Button>
+            </section>
+          )}
+
+          {scored && result && result.recommendation === "DECLINE" && (
+            <section className="panel mt-6 flex flex-col items-center gap-3 p-6 text-center rise-in">
+              <span className="rounded-full bg-destructive/15 px-4 py-1.5 text-sm font-bold tracking-wide text-destructive">
+                HIGH RISK
+              </span>
+              <p className="text-sm text-muted-foreground">
+                This invoice doesn't qualify for an advance right now. Our team may follow up for
+                more information.
+              </p>
+            </section>
+          )}
+        </div>
+      </AppShell>
+    </ProtectedRoute>
+  );
+}
