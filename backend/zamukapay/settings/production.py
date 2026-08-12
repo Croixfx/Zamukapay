@@ -44,3 +44,13 @@ SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = "DENY"
 
 REFRESH_TOKEN_COOKIE_SECURE = True
+
+# Frontend (vercel.app) and backend (onrender.com) are different registrable
+# domains, so this is a genuine cross-site relationship — SameSite=Lax (the
+# base.py default) is never sent on cross-site background requests like the
+# token-refresh call, only on top-level navigations. Without this, any full
+# page load that loses the in-memory access token (e.g. following a plain
+# <a href>, or just refreshing the page) fails to silently restore the
+# session and bounces the user to /login. None requires Secure=True, already
+# set above.
+REFRESH_TOKEN_COOKIE_SAMESITE = "None"
