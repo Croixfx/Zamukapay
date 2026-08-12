@@ -40,3 +40,5 @@ backend/*.sqlite3
 backend/.env
 backend/media
 backend/staticfiles
+.vercel
+.env*
