@@ -18,6 +18,12 @@ DATABASES = {
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:8080"])
 
+# DEFAULT_THROTTLE_CLASSES relies on the Redis-backed cache (CACHES in base.py
+# defaults to the Docker Compose "redis" hostname, unreachable on Render) — no
+# Redis is provisioned here, so throttling is disabled rather than crashing
+# every request to a scoped-throttle view (login/register) with a 500.
+REST_FRAMEWORK = {**REST_FRAMEWORK, "DEFAULT_THROTTLE_CLASSES": ()}
+
 MIDDLEWARE = list(MIDDLEWARE)
 MIDDLEWARE.insert(
     MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
