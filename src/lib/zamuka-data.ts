@@ -220,6 +220,13 @@ export async function getBuyerPendingInvoices(): Promise<Invoice[]> {
   }
 }
 
+/** Every invoice this buyer has ever been issued, any status — the backend scopes
+ * /invoices/ to the requesting buyer automatically, same endpoint suppliers use. */
+export async function getBuyerInvoices(): Promise<Invoice[]> {
+  const { data } = await api.get<{ data: { results: Invoice[] } }>("/invoices/");
+  return data.data.results;
+}
+
 export async function getInvoice(id: string | number): Promise<Invoice> {
   try {
     const { data } = await api.get<{ data: Invoice }>(`/invoices/${id}/`);
