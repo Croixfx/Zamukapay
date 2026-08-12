@@ -1,0 +1,24 @@
+name: zamukapay-backend
+services:
+  - name: web
+    type: web
+    git:
+      repository: github.com/Croixfx/Zamukapay
+      branch: main
+    buildpack: python
+    run_command: >
+      python manage.py migrate --settings=zamukapay.settings.production &&
+      python manage.py collectstatic --noinput --settings=zamukapay.settings.production &&
+      gunicorn zamukapay.wsgi:application --bind 0.0.0.0:8000
+    ports:
+      - port: 8000
+        protocol: http
+    env:
+      - key: DJANGO_SETTINGS_MODULE
+        value: zamukapay.settings.production
+      - key: SECRET_KEY
+        value: "set-in-dashboard"
+      - key: DATABASE_URL
+        value: "set-in-dashboard"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "set-in-dashboard"
