@@ -189,6 +189,39 @@ class AdminDashboardView(APIView):
         return api_response(data=data)
 
 
+class AdminBuyersView(APIView):
+    """Per-buyer ledger: how much each buyer owes (advanced, unpaid) vs has paid (settled)."""
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        from apps.users.models import User
+
+        rows = []
+        for buyer in User.objects.filter(role=User.Role.BUYER).order_by("company_name"):
+            invoices = Invoice.objects.filter(buyer=buyer)
+            owed = invoices.filter(
+                status__in=[Invoice.Status.CONFIRMED, Invoice.Status.APPROVED, Invoice.Status.ADVANCE_PAID]
+            ).aggregate(total=Sum("amount"))["total"] or 0
+            paid = invoices.filter(status=Invoice.Status.SETTLED).aggregate(total=Sum("amount"))["total"] or 0
+            rows.append(
+                {
+                    "id": buyer.id,
+                    "company_name": buyer.company_name,
+                    "total_invoices": invoices.count(),
+                    "owed_rwf": owed,
+                    "paid_rwf": paid,
+                    "invoices": AdminInvoiceRowSerializer(
+                        invoices.select_related("supplier", "buyer", "advance", "risk_score").order_by(
+                            "-created_at"
+                        ),
+                        many=True,
+                    ).data,
+                }
+            )
+        return api_response(data=rows)
+
+
 class AdminInvoiceListView(APIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
 

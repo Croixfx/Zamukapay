@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { Loader2, ShieldCheck, Store, Building2 } from "lucide-react";
+import { Loader2, ShieldCheck, Store, Building2, ShieldHalf } from "lucide-react";
 import { Logo } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,9 +30,23 @@ export const Route = createFileRoute("/login")({
 
 function Login() {
   const navigate = useNavigate();
-  const [role, setRole] = useState<"supplier" | "buyer">("supplier");
+  const [role, setRole] = useState<"supplier" | "buyer" | "admin">("supplier");
   const [email, setEmail] = useState("aline@umucyo.rw");
   const [password, setPassword] = useState("demo1234");
+
+  function selectRole(next: "supplier" | "buyer" | "admin") {
+    setRole(next);
+    if (next === "admin") {
+      setEmail("admin@zamukapay.rw");
+      setPassword("admin1234");
+    } else if (next === "supplier") {
+      setEmail("aline@umucyo.rw");
+      setPassword("demo1234");
+    } else {
+      setEmail("simba@supermarket.rw");
+      setPassword("demo1234");
+    }
+  }
 
   const loginMutation = useMutation({
     mutationFn: () => login(email, password),
@@ -71,17 +85,18 @@ function Login() {
         >
           <div className="space-y-2">
             <Label>I am a</Label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {(
                 [
                   { key: "supplier", label: "Supplier", note: "I issue invoices", icon: Store },
                   { key: "buyer", label: "Buyer", note: "I pay invoices", icon: Building2 },
+                  { key: "admin", label: "Admin", note: "I run ZamukaPay", icon: ShieldHalf },
                 ] as const
               ).map((option) => (
                 <button
                   key={option.key}
                   type="button"
-                  onClick={() => setRole(option.key)}
+                  onClick={() => selectRole(option.key)}
                   className={`rounded-xl border p-3 text-left transition-all ${
                     role === option.key
                       ? "border-transparent bg-secondary shadow-[var(--shadow-glow)]"
@@ -132,7 +147,7 @@ function Login() {
             disabled={loginMutation.isPending}
           >
             {loginMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-            Sign in as {role === "supplier" ? "Supplier" : "Buyer"}
+            Sign in as {role === "supplier" ? "Supplier" : role === "buyer" ? "Buyer" : "Admin"}
           </Button>
 
           <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">

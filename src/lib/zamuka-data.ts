@@ -345,6 +345,20 @@ export async function getAdminInvoices(status?: InvoiceStatus): Promise<AdminInv
   return data.data;
 }
 
+export type AdminBuyerRow = {
+  id: number;
+  company_name: string;
+  total_invoices: number;
+  owed_rwf: number;
+  paid_rwf: number;
+  invoices: AdminInvoiceRow[];
+};
+
+export async function getAdminBuyers(): Promise<AdminBuyerRow[]> {
+  const { data } = await api.get<{ data: AdminBuyerRow[] }>("/admin/buyers/");
+  return data.data;
+}
+
 export async function settleAdvance(advanceId: number): Promise<Invoice> {
   const { data } = await api.post<{ data: Invoice }>(`/advances/${advanceId}/settle/`);
   return data.data;

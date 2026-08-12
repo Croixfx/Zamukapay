@@ -25,6 +25,7 @@ import { getApiErrorMessage } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import {
   formatRWF,
+  getAdminBuyers,
   getAdminDashboard,
   getAdminInvoices,
   settleAdvance,
@@ -104,6 +105,11 @@ function AdminDashboard() {
   const invoicesQuery = useQuery({
     queryKey: ["admin-invoices", statusFilter],
     queryFn: () => getAdminInvoices(statusFilter === "all" ? undefined : statusFilter),
+    enabled: isAdmin,
+  });
+  const buyersQuery = useQuery({
+    queryKey: ["admin-buyers"],
+    queryFn: getAdminBuyers,
     enabled: isAdmin,
   });
 
@@ -255,6 +261,56 @@ function AdminDashboard() {
                   </div>
                 </li>
               ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="panel mt-6 p-5">
+          <h2 className="text-lg font-bold">By buyer</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            What each buyer currently owes (advanced, not yet repaid) vs. has already settled.
+          </p>
+
+          {buyersQuery.isLoading && (
+            <div className="mt-4 space-y-3">
+              {[1, 2].map((i) => (
+                <Skeleton key={i} className="h-16 rounded-xl" />
+              ))}
+            </div>
+          )}
+
+          {buyersQuery.isError && (
+            <p className="mt-4 flex items-center gap-2 text-sm text-destructive">
+              <AlertTriangle className="size-4 shrink-0" /> Couldn't load buyer breakdown.
+            </p>
+          )}
+
+          {!buyersQuery.isLoading && !buyersQuery.isError && (
+            <ul className="mt-4 space-y-3">
+              {(buyersQuery.data ?? []).map((buyer) => (
+                <li
+                  key={buyer.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
+                >
+                  <div>
+                    <p className="font-semibold">{buyer.company_name}</p>
+                    <p className="text-xs text-muted-foreground">{buyer.total_invoices} invoices</p>
+                  </div>
+                  <div className="flex items-center gap-6 text-right">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Owed</p>
+                      <p className="font-semibold text-highlight">{formatRWF(buyer.owed_rwf)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Paid</p>
+                      <p className="font-semibold text-success">{formatRWF(buyer.paid_rwf)}</p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+              {buyersQuery.data?.length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">No buyers yet.</p>
+              )}
             </ul>
           )}
         </section>
