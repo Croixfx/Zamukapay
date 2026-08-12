@@ -1,7 +1,7 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Bell, Wallet } from "lucide-react";
+import { Bell, Loader2, LogOut, Wallet } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { logout } from "@/lib/auth";
 import { getNotifications, markNotificationsRead } from "@/lib/zamuka-data";
 
 export function Logo({ compact = false }: { compact?: boolean }) {
@@ -72,11 +73,43 @@ export function AppShell({
             <span className="flex size-9 items-center justify-center rounded-full bg-secondary text-sm font-bold">
               {who.slice(0, 1)}
             </span>
+            <LogoutButton />
           </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
     </div>
+  );
+}
+
+function LogoutButton() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSuccess: () => {
+      // Clear cached data from the outgoing session so the next login (often
+      // a different role, mid-demo) never flashes stale data from this one.
+      queryClient.clear();
+      navigate({ to: "/login" });
+    },
+  });
+
+  return (
+    <button
+      type="button"
+      title="Log out"
+      disabled={logoutMutation.isPending}
+      onClick={() => logoutMutation.mutate()}
+      className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive disabled:opacity-50"
+    >
+      {logoutMutation.isPending ? (
+        <Loader2 className="size-5 animate-spin" />
+      ) : (
+        <LogOut className="size-5" />
+      )}
+    </button>
   );
 }
 
