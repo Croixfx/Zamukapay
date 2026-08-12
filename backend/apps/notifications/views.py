@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
@@ -40,6 +41,12 @@ class MomoPayoutView(APIView):
 class NotificationViewSet(StandardResponseMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user)
+        return Notification.objects.filter(user=self.request.user)[:10]
+
+    @action(detail=False, methods=["post"], url_path="mark-read")
+    def mark_read(self, request):
+        Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        return api_response(message="Notifications marked as read.")

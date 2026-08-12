@@ -1,6 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Wallet } from "lucide-react";
+import { Bell, Wallet } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { getNotifications, markNotificationsRead } from "@/lib/zamuka-data";
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -25,7 +34,7 @@ export function AppShell({
   nav = [],
   children,
 }: {
-  role: "Supplier" | "Buyer";
+  role: "Supplier" | "Buyer" | "Admin";
   who: string;
   nav?: NavItem[];
   children: ReactNode;
@@ -55,6 +64,7 @@ export function AppShell({
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right leading-tight">
               <p className="text-sm font-semibold">{who}</p>
               <p className="text-xs text-muted-foreground">{role} account</p>
@@ -67,5 +77,67 @@ export function AppShell({
       </header>
       <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
     </div>
+  );
+}
+
+function NotificationBell() {
+  const queryClient = useQueryClient();
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: getNotifications,
+    refetchInterval: 30_000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: markNotificationsRead,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+
+  const notifications = notificationsQuery.data ?? [];
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  return (
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open && unreadCount > 0) markReadMutation.mutate();
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="relative flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <Bell className="size-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {notifications.length === 0 && (
+          <p className="px-2 py-4 text-center text-sm text-muted-foreground">
+            No notifications yet.
+          </p>
+        )}
+        {notifications.slice(0, 5).map((n) => (
+          <div key={n.id} className="flex flex-col gap-0.5 rounded-md px-2 py-2 text-sm">
+            <p className={n.is_read ? "text-muted-foreground" : "font-medium"}>{n.message}</p>
+            <p className="text-xs text-muted-foreground">
+              {new Date(n.created_at).toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

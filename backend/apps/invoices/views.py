@@ -1,16 +1,20 @@
-from django.db.models import Sum
+from django.db.models import Count, Sum
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 
+from apps.scoring.models import RiskScoreBreakdown
 from core.mixins import StandardResponseMixin
-from core.permissions import IsBuyer, IsSupplier
+from core.permissions import IsAdminRole, IsBuyer, IsSupplier
 from core.response import api_response
 
 from .models import Dispute, Invoice, InvoiceAdvance, Transaction
 from .serializers import (
+    AdminInvoiceRowSerializer,
     InvoiceCreateSerializer,
     InvoiceDetailSerializer,
     InvoiceDisputeSerializer,
@@ -61,7 +65,7 @@ class InvoiceViewSet(StandardResponseMixin, viewsets.ModelViewSet):
         invoice = self.get_object()
         if invoice.buyer_id != request.user.id:
             raise PermissionDenied("This invoice was not issued to you.")
-        if invoice.status != Invoice.Status.PENDING:
+        if invoice.status != Invoice.Status.PENDING_CONFIRMATION:
             return api_response(success=False, message="Invoice is not pending confirmation.", status_code=400)
 
         invoice.status = Invoice.Status.CONFIRMED
@@ -73,7 +77,7 @@ class InvoiceViewSet(StandardResponseMixin, viewsets.ModelViewSet):
         invoice = self.get_object()
         if invoice.buyer_id != request.user.id:
             raise PermissionDenied("This invoice was not issued to you.")
-        if invoice.status != Invoice.Status.PENDING:
+        if invoice.status != Invoice.Status.PENDING_CONFIRMATION:
             return api_response(success=False, message="Invoice is not pending confirmation.", status_code=400)
 
         serializer = InvoiceDisputeSerializer(data=request.data)
@@ -88,14 +92,14 @@ class InvoiceViewSet(StandardResponseMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated, IsBuyer])
     def pending(self, request):
-        qs = self.get_queryset().filter(status=Invoice.Status.PENDING)
+        qs = self.get_queryset().filter(status=Invoice.Status.PENDING_CONFIRMATION)
         return api_response(data=InvoiceListSerializer(qs, many=True).data)
 
     @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated, IsSupplier])
     def stats(self, request):
         user = request.user
         invoices = Invoice.objects.filter(supplier=user)
-        pending_invoices = invoices.filter(status=Invoice.Status.PENDING)
+        pending_invoices = invoices.filter(status=Invoice.Status.PENDING_CONFIRMATION)
         disbursed_advances = InvoiceAdvance.objects.filter(
             invoice__supplier=user, status=InvoiceAdvance.Status.DISBURSED
         )
@@ -120,3 +124,90 @@ class TransactionViewSet(StandardResponseMixin, mixins.ListModelMixin, viewsets.
 
     def get_queryset(self):
         return Transaction.objects.filter(user=self.request.user)
+
+
+class SettleAdvanceView(APIView):
+    """Simulates the buyer repaying ZamukaPay on the invoice's due date."""
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request, advance_id):
+        advance = get_object_or_404(InvoiceAdvance, pk=advance_id)
+        if advance.status != InvoiceAdvance.Status.DISBURSED:
+            return api_response(success=False, message="Advance is not currently disbursed.", status_code=400)
+
+        advance.status = InvoiceAdvance.Status.REPAID
+        advance.save(update_fields=["status"])
+
+        invoice = advance.invoice
+        Transaction.objects.create(
+            user=invoice.buyer,
+            invoice=invoice,
+            label=f"Repayment received — {invoice.number}",
+            amount=invoice.amount,
+            kind=Transaction.Kind.OUT,
+            transaction_type=Transaction.TransactionType.REPAYMENT_RECEIVED,
+        )
+
+        invoice.status = Invoice.Status.SETTLED
+        invoice.save(update_fields=["status", "updated_at"])
+
+        return api_response(data=InvoiceDetailSerializer(invoice).data, message="Advance settled.")
+
+
+class AdminDashboardView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        settled_or_disbursed = InvoiceAdvance.objects.filter(
+            status__in=[InvoiceAdvance.Status.DISBURSED, InvoiceAdvance.Status.REPAID]
+        )
+        recent_invoices = (
+            Invoice.objects.select_related("supplier", "buyer", "advance", "risk_score")
+            .order_by("-created_at")[:8]
+        )
+
+        distribution = dict(
+            RiskScoreBreakdown.objects.values_list("recommendation").annotate(count=Count("id"))
+        )
+        risk_distribution = {
+            choice: distribution.get(choice, 0) for choice in RiskScoreBreakdown.Recommendation.values
+        }
+
+        data = {
+            "total_invoices": Invoice.objects.count(),
+            "total_advanced_rwf": settled_or_disbursed.aggregate(total=Sum("advance_amount"))["total"] or 0,
+            "total_fees_collected_rwf": settled_or_disbursed.aggregate(total=Sum("fee_amount"))["total"] or 0,
+            "active_advances": InvoiceAdvance.objects.filter(status=InvoiceAdvance.Status.DISBURSED).count(),
+            "settled_advances": InvoiceAdvance.objects.filter(status=InvoiceAdvance.Status.REPAID).count(),
+            "pending_confirmation": Invoice.objects.filter(
+                status=Invoice.Status.PENDING_CONFIRMATION
+            ).count(),
+            "recent_invoices": AdminInvoiceRowSerializer(recent_invoices, many=True).data,
+            "risk_distribution": risk_distribution,
+        }
+        return api_response(data=data)
+
+
+class AdminInvoiceListView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        qs = (
+            Invoice.objects.select_related("supplier", "buyer", "advance", "risk_score")
+            .order_by("-created_at")
+        )
+
+        status_param = request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+
+        date_from = request.query_params.get("date_from")
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = request.query_params.get("date_to")
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        return api_response(data=AdminInvoiceRowSerializer(qs, many=True).data)

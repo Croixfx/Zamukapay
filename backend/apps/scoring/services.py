@@ -1,116 +1,177 @@
+import json
 from decimal import Decimal
+from pathlib import Path
 
+import joblib
 from django.db.models import Avg
 from django.utils import timezone
 
-from apps.invoices.models import Invoice
+from apps.invoices.models import Invoice, Transaction
 
 from .models import RiskScoreBreakdown
 
+# ---------------------------------------------------------------------------
+# Model artifacts are loaded once at import time (module scope), not per
+# request. Both files come from ZamukaPay_AI_Scoring.ipynb section 6.
+# ---------------------------------------------------------------------------
+ML_DIR = Path(__file__).resolve().parent / "ml"
 
-def _buyer_payment_history(buyer):
-    """Max 35 pts — share of the buyer's past invoices that were honored."""
-    past = Invoice.objects.filter(buyer=buyer).exclude(status=Invoice.Status.PENDING)
+_MODEL = joblib.load(ML_DIR / "zamukapay_scorer.joblib")
+with open(ML_DIR / "zamukapay_scorer_meta.json") as _f:
+    _META = json.load(_f)
+
+FEATURES = _META["features"]
+THRESHOLDS = _META["thresholds"]
+ADVANCE_PCTS = _META["advance_pcts"]
+FEE_PCTS = _META["fee_pcts"]
+
+
+def _buyer_payment_rate(buyer):
+    """Share of the buyer's past invoices that were honored (not disputed)."""
+    past = Invoice.objects.filter(buyer=buyer).exclude(status=Invoice.Status.PENDING_CONFIRMATION)
     total = past.count()
     if total == 0:
-        return 25, "New buyer"
+        return 0.6  # neutral prior for a brand new buyer
 
-    honored = past.filter(status__in=[Invoice.Status.CONFIRMED, Invoice.Status.ADVANCED]).count()
-    ratio = honored / total
-    score = round(ratio * 35)
-
-    if ratio >= 0.9:
-        label = "Excellent"
-    elif ratio >= 0.7:
-        label = "Good"
-    elif ratio >= 0.4:
-        label = "Fair"
-    else:
-        label = "Poor"
-    return score, label
+    honored = past.filter(
+        status__in=[
+            Invoice.Status.CONFIRMED,
+            Invoice.Status.APPROVED,
+            Invoice.Status.ADVANCE_PAID,
+            Invoice.Status.SETTLED,
+        ]
+    ).count()
+    return honored / total
 
 
-def _relationship_age(supplier, buyer):
-    """Max 20 pts — how long this supplier/buyer pair has been trading, scaled up to 12 months."""
+def _relationship_months(supplier, buyer):
     earliest = Invoice.objects.filter(supplier=supplier, buyer=buyer).order_by("created_at").first()
     if earliest is None:
-        return 0, 0
-
-    months = max(0, (timezone.now().date() - earliest.created_at.date()).days // 30)
-    score = min(20, round((months / 12) * 20))
-    return months, score
+        return 0
+    return max(0, (timezone.now().date() - earliest.created_at.date()).days // 30)
 
 
-def _invoice_vs_average(supplier, amount, exclude_invoice_id=None):
-    """Max 20 pts — how far this invoice sits from the supplier's historical average."""
+def _invoice_vs_avg(supplier, amount, exclude_invoice_id=None):
     qs = Invoice.objects.filter(supplier=supplier)
     if exclude_invoice_id:
         qs = qs.exclude(pk=exclude_invoice_id)
     average = qs.aggregate(avg=Avg("amount"))["avg"]
-
     if not average:
-        return 20, "Normal range"
-
-    ratio = float(amount) / float(average)
-    if 0.5 <= ratio <= 1.5:
-        return 20, "Normal range"
-    if 0.25 <= ratio <= 2.0:
-        return 12, "Above average" if ratio > 1 else "Below average"
-    return 5, "Unusual"
+        return 1.0
+    return float(amount) / float(average)
 
 
-def _buyer_verification(buyer):
-    """Max 25 pts — verified buyers carry far less counterparty risk."""
-    return (25, "Confirmed") if buyer.is_verified else (10, "Unverified")
+def _prior_invoices(supplier, buyer, exclude_invoice_id=None):
+    qs = Invoice.objects.filter(supplier=supplier, buyer=buyer)
+    if exclude_invoice_id:
+        qs = qs.exclude(pk=exclude_invoice_id)
+    return qs.count()
+
+
+def _avg_days_late(buyer):
+    """Average (repayment transaction date - due_date) across the buyer's settled invoices."""
+    settled = Invoice.objects.filter(buyer=buyer, status=Invoice.Status.SETTLED)
+    deltas = []
+    for invoice in settled:
+        repayment = (
+            invoice.transactions.filter(transaction_type=Transaction.TransactionType.REPAYMENT_RECEIVED)
+            .order_by("-created_at")
+            .first()
+        )
+        if repayment:
+            deltas.append((repayment.created_at.date() - invoice.due_date).days)
+    if not deltas:
+        return 0.0
+    return sum(deltas) / len(deltas)
+
+
+def _display_breakdown(buyer_payment_rate, relationship_months, invoice_vs_avg, buyer_verified):
+    """Per-factor scores/labels shown on the animated scoring screen.
+
+    Mirrors the breakdown() helper in ZamukaPay_AI_Scoring.ipynb section 4 —
+    these are for display only; the actual APPROVE/REVIEW/DECLINE decision
+    comes from the trained model's predict_proba(), not these sub-scores.
+    """
+    history_score = round(buyer_payment_rate * 35)
+    if buyer_payment_rate > 0.85:
+        history_label = "Excellent"
+    elif buyer_payment_rate > 0.65:
+        history_label = "Good"
+    else:
+        history_label = "Poor"
+
+    age_score = round(min(relationship_months / 48, 1) * 20)
+
+    avg_score = round(max(0, 1 - (invoice_vs_avg - 1) * 0.4) * 20)
+    avg_label = "Normal range" if invoice_vs_avg < 1.5 else "Unusually large"
+
+    verify_score = round(buyer_verified * 25)
+    verify_label = "Verified" if buyer_verified else "Unverified"
+
+    return {
+        "buyer_payment_history_score": history_score,
+        "buyer_payment_history_label": history_label,
+        "relationship_age_score": age_score,
+        "invoice_vs_average_score": avg_score,
+        "invoice_vs_average_label": avg_label,
+        "buyer_verification_score": verify_score,
+        "buyer_verification_label": verify_label,
+    }
 
 
 class RiskScoreService:
-    """Rule-based weighted scorer — a placeholder for a future ML model.
-
-    Weights: payment history 35 + relationship age 20 + invoice-vs-average 20
-    + buyer verification 25 = 100 max. Recommendation tiers drive the advance
-    rate and fee percentage offered to the supplier.
-    """
+    """ML-backed scorer — loads the RandomForestClassifier trained in
+    ZamukaPay_AI_Scoring.ipynb and scores invoices with predict_proba()."""
 
     @staticmethod
     def score_invoice(invoice_id) -> RiskScoreBreakdown:
         invoice = Invoice.objects.select_related("supplier", "buyer").get(pk=invoice_id)
 
-        history_score, history_label = _buyer_payment_history(invoice.buyer)
-        age_months, age_score = _relationship_age(invoice.supplier, invoice.buyer)
-        avg_score, avg_label = _invoice_vs_average(invoice.supplier, invoice.amount, exclude_invoice_id=invoice.id)
-        verify_score, verify_label = _buyer_verification(invoice.buyer)
+        buyer_payment_rate = _buyer_payment_rate(invoice.buyer)
+        relationship_months = _relationship_months(invoice.supplier, invoice.buyer)
+        invoice_vs_avg = _invoice_vs_avg(invoice.supplier, invoice.amount, exclude_invoice_id=invoice.id)
+        buyer_verified = 1 if invoice.buyer.is_verified else 0
+        days_to_due = (invoice.due_date - timezone.now().date()).days
+        prior_invoices = _prior_invoices(invoice.supplier, invoice.buyer, exclude_invoice_id=invoice.id)
+        avg_days_late = _avg_days_late(invoice.buyer)
 
-        overall = min(100, history_score + age_score + avg_score + verify_score)
+        feature_values = {
+            "buyer_payment_rate": buyer_payment_rate,
+            "relationship_months": relationship_months,
+            "invoice_vs_avg": invoice_vs_avg,
+            "buyer_verified": buyer_verified,
+            "days_to_due": days_to_due,
+            "prior_invoices": prior_invoices,
+            "avg_days_late": avg_days_late,
+        }
+        ordered_features = [[feature_values[name] for name in FEATURES]]
 
-        if overall >= 70:
+        repay_prob = _MODEL.predict_proba(ordered_features)[0][1]
+        overall = max(0, min(100, round(repay_prob * 100)))
+
+        if overall >= THRESHOLDS["APPROVE"]:
             recommendation = RiskScoreBreakdown.Recommendation.APPROVE
-            advance_rate = Decimal("0.8")
-            fee_percentage = Decimal("4") if overall >= 90 else Decimal("5")
-        elif overall >= 40:
+        elif overall >= THRESHOLDS["REVIEW"]:
             recommendation = RiskScoreBreakdown.Recommendation.REVIEW
-            advance_rate = Decimal("0.5")
-            fee_percentage = Decimal("7")
         else:
             recommendation = RiskScoreBreakdown.Recommendation.DECLINE
-            advance_rate = Decimal("0")
-            fee_percentage = Decimal("0")
+
+        advance_rate = Decimal(str(ADVANCE_PCTS[recommendation]))
+        fee_percentage = Decimal(str(FEE_PCTS[recommendation] * 100))
 
         advance_amount = (invoice.amount * advance_rate).quantize(Decimal("1"))
         fee_amount = (advance_amount * fee_percentage / 100).quantize(Decimal("1"))
         net_amount = advance_amount - fee_amount
 
+        breakdown_fields = _display_breakdown(
+            buyer_payment_rate, relationship_months, invoice_vs_avg, buyer_verified
+        )
+
         breakdown, _ = RiskScoreBreakdown.objects.update_or_create(
             invoice=invoice,
             defaults={
-                "buyer_payment_history_score": history_score,
-                "buyer_payment_history_label": history_label,
-                "relationship_age_months": age_months,
-                "relationship_age_score": age_score,
-                "invoice_vs_average_score": avg_score,
-                "invoice_vs_average_label": avg_label,
-                "buyer_verification_score": verify_score,
-                "buyer_verification_label": verify_label,
+                **breakdown_fields,
+                "relationship_age_months": relationship_months,
                 "overall_score": overall,
                 "recommendation": recommendation,
                 "advance_amount": advance_amount,

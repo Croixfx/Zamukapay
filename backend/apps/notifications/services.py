@@ -27,6 +27,9 @@ class MoMoPayoutService:
 
     @staticmethod
     def send_payout(invoice: Invoice) -> InvoiceAdvance:
+        if invoice.status != Invoice.Status.APPROVED:
+            raise ValueError("Invoice must be approved before it can be disbursed.")
+
         breakdown = getattr(invoice, "risk_score", None)
         if breakdown is None:
             raise ValueError("Invoice must be scored before it can be disbursed.")
@@ -47,7 +50,7 @@ class MoMoPayoutService:
             },
         )
 
-        invoice.status = Invoice.Status.ADVANCED
+        invoice.status = Invoice.Status.ADVANCE_PAID
         invoice.save(update_fields=["status", "updated_at"])
 
         Transaction.objects.create(

@@ -11,4 +11,5 @@ urlpatterns = [
     path("auth/token/verify/", TokenVerifyView.as_view(), name="auth-token-verify"),
     path("auth/me/", views.MeView.as_view(), name="auth-me"),
     path("users/buyers/", views.BuyersListView.as_view(), name="users-buyers"),
+    path("users/me/stats/", views.MyStatsView.as_view(), name="users-me-stats"),
 ]

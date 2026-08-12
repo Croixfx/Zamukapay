@@ -51,16 +51,8 @@ function InvoiceNew() {
 
   const submitMutation = useMutation({
     mutationFn: submitInvoice,
-    onSuccess: (invoice) => {
-      const buyerName =
-        buyersQuery.data?.find((b) => b.id === buyerId)?.company_name ?? draft.buyer;
-      draft.buyer = buyerName;
-      draft.amount = numericAmount;
-      draft.dueDate = dueDate;
-      draft.number = number;
-      draft.fileName = fileName;
-      draft.invoiceId = Number(invoice.id);
-      navigate({ to: "/risk-score" });
+    onSuccess: () => {
+      navigate({ to: "/supplier-dashboard" });
     },
   });
 
@@ -80,7 +72,8 @@ function InvoiceNew() {
         <div className="mx-auto max-w-2xl rise-in">
           <h1 className="text-3xl font-extrabold tracking-tight">Submit a new invoice</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            We score it instantly and advance up to 80% of the invoice value to your MoMo wallet.
+            Once your buyer confirms it, you can request an AI-scored advance of up to 80% of the
+            invoice value to your MoMo wallet.
           </p>
 
           <form
@@ -211,7 +204,7 @@ function InvoiceNew() {
               disabled={submitMutation.isPending || !file || !buyerId}
             >
               {submitMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-              Request Advance
+              Submit Invoice
             </Button>
           </form>
         </div>

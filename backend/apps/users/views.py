@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Sum
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
@@ -8,7 +9,9 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from apps.invoices.models import Invoice, InvoiceAdvance, Transaction
 from core.mixins import StandardResponseMixin
+from core.permissions import IsSupplier
 from core.response import api_response
 
 from .serializers import BuyerSerializer, LoginSerializer, RegisterSerializer, UserSerializer
@@ -134,3 +137,34 @@ class BuyersListView(StandardResponseMixin, generics.ListAPIView):
 
     def get_queryset(self):
         return User.objects.filter(role=User.Role.BUYER).order_by("company_name")
+
+
+class MyStatsView(APIView):
+    """Supplier-facing account summary shown on the supplier dashboard."""
+
+    permission_classes = [IsAuthenticated, IsSupplier]
+
+    def get(self, request):
+        user = request.user
+        invoices = Invoice.objects.filter(supplier=user)
+        pending_invoices = invoices.filter(status=Invoice.Status.PENDING_CONFIRMATION)
+        disbursed_advances = InvoiceAdvance.objects.filter(
+            invoice__supplier=user, status=InvoiceAdvance.Status.DISBURSED
+        )
+        advances_received = Transaction.objects.filter(
+            user=user, transaction_type=Transaction.TransactionType.ADVANCE
+        )
+        recent_transactions = Transaction.objects.filter(user=user).order_by("-created_at")[:5]
+
+        data = {
+            "total_advances_received_rwf": advances_received.aggregate(total=Sum("amount"))["total"] or 0,
+            "total_invoices": invoices.count(),
+            "pending_invoices": pending_invoices.count(),
+            "active_advances": disbursed_advances.count(),
+            "active_advances_rwf": disbursed_advances.aggregate(total=Sum("advance_amount"))["total"] or 0,
+            "recent_transactions": [
+                {"type": t.transaction_type, "amount": t.amount, "date": t.created_at}
+                for t in recent_transactions
+            ],
+        }
+        return api_response(data=data)

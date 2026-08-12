@@ -18,7 +18,18 @@ import {
   getSupplierInvoices,
   getSupplierStats,
   getTransactions,
+  type Invoice,
+  type InvoiceStatus,
 } from "@/lib/zamuka-data";
+
+const STATUS_BADGE: Record<InvoiceStatus, { label: string; className: string }> = {
+  pending_confirmation: { label: "Awaiting buyer confirmation", className: "text-highlight" },
+  confirmed: { label: "Confirmed — ready to score", className: "text-primary" },
+  disputed: { label: "Disputed", className: "text-destructive" },
+  approved: { label: "Approved — ready for payout", className: "text-primary" },
+  advance_paid: { label: "Advance active", className: "text-success" },
+  settled: { label: "Settled", className: "text-muted-foreground" },
+};
 
 export const Route = createFileRoute("/supplier-dashboard")({
   head: () => ({
@@ -147,27 +158,7 @@ function SupplierDashboard() {
             {!invoicesQuery.isLoading && !invoicesQuery.isError && (
               <ul className="mt-4 space-y-3">
                 {(invoicesQuery.data ?? []).map((invoice) => (
-                  <li
-                    key={invoice.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
-                  >
-                    <div>
-                      <p className="font-semibold">{invoice.number}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {invoice.buyer} · due {invoice.dueDate}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">{formatRWF(invoice.amount)}</p>
-                      <span
-                        className={`text-xs font-medium ${
-                          invoice.status === "advanced" ? "text-success" : "text-highlight"
-                        }`}
-                      >
-                        {invoice.status === "advanced" ? "Advance active" : "Awaiting confirmation"}
-                      </span>
-                    </div>
-                  </li>
+                  <InvoiceRow key={invoice.id} invoice={invoice} />
                 ))}
               </ul>
             )}
@@ -225,5 +216,41 @@ function SupplierDashboard() {
         </div>
       </AppShell>
     </ProtectedRoute>
+  );
+}
+
+function InvoiceRow({ invoice }: { invoice: Invoice }) {
+  const badge = STATUS_BADGE[invoice.status];
+  const invoiceId = Number(invoice.id);
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-secondary/40 p-4">
+      <div>
+        <p className="font-semibold">{invoice.number}</p>
+        <p className="text-xs text-muted-foreground">
+          {invoice.buyer} · due {invoice.dueDate}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <p className="font-semibold">{formatRWF(invoice.amount)}</p>
+          <span className={`text-xs font-medium ${badge.className}`}>{badge.label}</span>
+        </div>
+        {invoice.status === "confirmed" && (
+          // Plain <a> (full navigation) rather than <Link> (client-side transition) —
+          // the risk-score page auto-fires a scoring mutation on mount, and a client-side
+          // router transition into it leaves that mutation's result stuck rendering the
+          // loading state forever even though the request completes successfully server-side.
+          <Button asChild size="sm" className="h-9 font-semibold">
+            <a href={`/risk-score?id=${invoiceId}`}>Request Advance</a>
+          </Button>
+        )}
+        {invoice.status === "approved" && (
+          <Button asChild size="sm" className="h-9 font-semibold">
+            <a href={`/payout?id=${invoiceId}`}>Receive via MoMo</a>
+          </Button>
+        )}
+      </div>
+    </li>
   );
 }

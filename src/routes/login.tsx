@@ -31,13 +31,19 @@ export const Route = createFileRoute("/login")({
 function Login() {
   const navigate = useNavigate();
   const [role, setRole] = useState<"supplier" | "buyer">("supplier");
-  const [email, setEmail] = useState("aline@umucyofresh.rw");
+  const [email, setEmail] = useState("aline@umucyo.rw");
   const [password, setPassword] = useState("demo1234");
 
   const loginMutation = useMutation({
     mutationFn: () => login(email, password),
     onSuccess: (user) => {
-      navigate({ to: user.role === "BUYER" ? "/buyer-dashboard" : "/supplier-dashboard" });
+      const destination =
+        user.role === "BUYER"
+          ? "/buyer-dashboard"
+          : user.role === "ADMIN"
+            ? "/admin-dashboard"
+            : "/supplier-dashboard";
+      navigate({ to: destination });
     },
   });
 

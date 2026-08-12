@@ -8,6 +8,7 @@ class InvoiceAdvanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceAdvance
         fields = [
+            "id",
             "advance_amount",
             "fee_percentage",
             "fee_amount",
@@ -54,6 +55,43 @@ class InvoiceDetailSerializer(InvoiceListSerializer):
             "dispute",
             "created_at",
         ]
+
+
+class AdminInvoiceRowSerializer(serializers.ModelSerializer):
+    """Flat row shape for the admin dashboard's recent/all-invoices lists."""
+
+    supplier_name = serializers.CharField(source="supplier.company_name", read_only=True)
+    buyer_name = serializers.CharField(source="buyer.company_name", read_only=True)
+    risk_score = serializers.SerializerMethodField()
+    advance_amount = serializers.SerializerMethodField()
+    advance_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "id",
+            "number",
+            "supplier_name",
+            "buyer_name",
+            "amount",
+            "status",
+            "risk_score",
+            "advance_amount",
+            "advance_id",
+            "created_at",
+        ]
+
+    def get_risk_score(self, obj):
+        breakdown = getattr(obj, "risk_score", None)
+        return breakdown.overall_score if breakdown else None
+
+    def get_advance_amount(self, obj):
+        advance = getattr(obj, "advance", None)
+        return advance.advance_amount if advance else None
+
+    def get_advance_id(self, obj):
+        advance = getattr(obj, "advance", None)
+        return advance.id if advance else None
 
 
 class InvoiceCreateSerializer(serializers.ModelSerializer):

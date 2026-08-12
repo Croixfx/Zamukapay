@@ -6,10 +6,12 @@ from .validators import validate_pdf_file
 
 class Invoice(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        ADVANCED = "advanced", "Advanced"
+        PENDING_CONFIRMATION = "pending_confirmation", "Pending Confirmation"
         CONFIRMED = "confirmed", "Confirmed"
         DISPUTED = "disputed", "Disputed"
+        APPROVED = "approved", "Approved"
+        ADVANCE_PAID = "advance_paid", "Advance Paid"
+        SETTLED = "settled", "Settled"
 
     number = models.CharField(max_length=50)
     supplier = models.ForeignKey(
@@ -26,7 +28,7 @@ class Invoice(models.Model):
     )
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     due_date = models.DateField()
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING_CONFIRMATION)
     pdf_file = models.FileField(upload_to="invoices/%Y/%m/", validators=[validate_pdf_file])
     goods_description = models.CharField(max_length=255, blank=True)
     purchase_order_number = models.CharField(max_length=50, blank=True)
@@ -82,7 +84,7 @@ class Transaction(models.Model):
     class TransactionType(models.TextChoices):
         ADVANCE = "advance", "Advance"
         FEE = "fee", "Fee"
-        REPAYMENT = "repayment", "Repayment"
+        REPAYMENT_RECEIVED = "repayment_received", "Repayment Received"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="transactions", on_delete=models.CASCADE)
     invoice = models.ForeignKey(
@@ -91,7 +93,7 @@ class Transaction(models.Model):
     label = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     kind = models.CharField(max_length=3, choices=Kind.choices)
-    transaction_type = models.CharField(max_length=10, choices=TransactionType.choices)
+    transaction_type = models.CharField(max_length=20, choices=TransactionType.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,5 +1,13 @@
 import { api } from "./api";
 
+export type InvoiceStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "disputed"
+  | "approved"
+  | "advance_paid"
+  | "settled";
+
 export type Invoice = {
   id: string;
   number: string;
@@ -7,7 +15,7 @@ export type Invoice = {
   supplier: string;
   amount: number;
   dueDate: string;
-  status: "pending" | "advanced" | "confirmed" | "disputed";
+  status: InvoiceStatus;
 };
 
 export const BUYERS = [
@@ -26,7 +34,7 @@ export const supplierInvoices: Invoice[] = [
     supplier: "Umucyo Fresh Produce Ltd",
     amount: 2000000,
     dueDate: "2026-09-12",
-    status: "pending",
+    status: "pending_confirmation",
   },
   {
     id: "inv-2",
@@ -35,7 +43,7 @@ export const supplierInvoices: Invoice[] = [
     supplier: "Umucyo Fresh Produce Ltd",
     amount: 1250000,
     dueDate: "2026-08-28",
-    status: "advanced",
+    status: "advance_paid",
   },
   {
     id: "inv-3",
@@ -44,7 +52,7 @@ export const supplierInvoices: Invoice[] = [
     supplier: "Umucyo Fresh Produce Ltd",
     amount: 860000,
     dueDate: "2026-08-19",
-    status: "advanced",
+    status: "settled",
   },
 ];
 
@@ -94,7 +102,7 @@ export const buyerPendingInvoices: Invoice[] = [
     supplier: "Umucyo Fresh Produce Ltd",
     amount: 2000000,
     dueDate: "2026-09-12",
-    status: "pending",
+    status: "pending_confirmation",
   },
   {
     id: "b-2",
@@ -103,7 +111,7 @@ export const buyerPendingInvoices: Invoice[] = [
     supplier: "Rwanda Packaging Co.",
     amount: 640000,
     dueDate: "2026-08-30",
-    status: "pending",
+    status: "pending_confirmation",
   },
   {
     id: "b-3",
@@ -112,25 +120,23 @@ export const buyerPendingInvoices: Invoice[] = [
     supplier: "Gasabo Logistics Ltd",
     amount: 1180000,
     dueDate: "2026-09-05",
-    status: "pending",
+    status: "pending_confirmation",
   },
 ];
 
-/** Draft invoice held in memory between the submission form and the scoring/payout screens. */
+/** Default values for the new-invoice form. */
 export const draft: {
   buyer: string;
   amount: number;
   dueDate: string;
   number: string;
   fileName: string;
-  invoiceId: number | null;
 } = {
   buyer: "Simba Supermarket Ltd",
   amount: 2000000,
   dueDate: "2026-09-12",
   number: "INV-2041",
   fileName: "invoice-2041.pdf",
-  invoiceId: null,
 };
 
 export function formatRWF(value: number) {
@@ -290,4 +296,70 @@ export async function confirmInvoice(invoiceId: number): Promise<Invoice> {
 export async function disputeInvoice(invoiceId: number, reason?: string): Promise<Invoice> {
   const { data } = await api.post<{ data: Invoice }>(`/invoices/${invoiceId}/dispute/`, { reason });
   return data.data;
+}
+
+// ---------------------------------------------------------------------------
+// Admin data layer
+// ---------------------------------------------------------------------------
+
+export type AdminInvoiceRow = {
+  id: number;
+  number: string;
+  supplier_name: string;
+  buyer_name: string;
+  amount: number;
+  status: InvoiceStatus;
+  risk_score: number | null;
+  advance_amount: number | null;
+  advance_id: number | null;
+  created_at: string;
+};
+
+export type AdminDashboardStats = {
+  total_invoices: number;
+  total_advanced_rwf: number;
+  total_fees_collected_rwf: number;
+  active_advances: number;
+  settled_advances: number;
+  pending_confirmation: number;
+  recent_invoices: AdminInvoiceRow[];
+  risk_distribution: Record<"APPROVE" | "REVIEW" | "DECLINE", number>;
+};
+
+export async function getAdminDashboard(): Promise<AdminDashboardStats> {
+  const { data } = await api.get<{ data: AdminDashboardStats }>("/admin/dashboard/");
+  return data.data;
+}
+
+export async function getAdminInvoices(status?: InvoiceStatus): Promise<AdminInvoiceRow[]> {
+  const { data } = await api.get<{ data: AdminInvoiceRow[] }>("/admin/invoices/", {
+    params: status ? { status } : undefined,
+  });
+  return data.data;
+}
+
+export async function settleAdvance(advanceId: number): Promise<Invoice> {
+  const { data } = await api.post<{ data: Invoice }>(`/advances/${advanceId}/settle/`);
+  return data.data;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type Notification = {
+  id: number;
+  type: "momo_payout" | "invoice_confirmed" | "invoice_disputed" | "advance_approved";
+  message: string;
+  is_read: boolean;
+  created_at: string;
+};
+
+export async function getNotifications(): Promise<Notification[]> {
+  const { data } = await api.get<{ data: Notification[] }>("/notifications/");
+  return data.data;
+}
+
+export async function markNotificationsRead(): Promise<void> {
+  await api.post("/notifications/mark-read/");
 }

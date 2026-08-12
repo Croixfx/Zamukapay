@@ -1,14 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Loader2, Smartphone } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api";
-import { draft, formatRWF, scoreInvoice, type RiskCheck } from "@/lib/zamuka-data";
+import { formatRWF, getInvoice, scoreInvoice, type RiskCheck } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/risk-score")({
+  validateSearch: (search: Record<string, unknown>) => ({ id: Number(search["id"]) }),
   head: () => ({
     meta: [
       { title: "AI Risk Score — ZamukaPay" },
@@ -42,12 +44,15 @@ const RECOMMENDATION_BADGE = {
 } as const;
 
 function RiskScore() {
+  const { id } = Route.useSearch();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [displayScore, setDisplayScore] = useState(0);
 
+  const invoiceQuery = useQuery({ queryKey: ["invoice", id], queryFn: () => getInvoice(id) });
+
   const scoreMutation = useMutation({
-    mutationFn: () => scoreInvoice(draft.invoiceId as number),
+    mutationFn: () => scoreInvoice(id),
   });
 
   // Guards against firing the mutation twice for one mount (e.g. React dev
@@ -56,7 +61,7 @@ function RiskScore() {
   const hasStarted = useRef(false);
 
   useEffect(() => {
-    if (draft.invoiceId == null) {
+    if (!id || Number.isNaN(id)) {
       navigate({ to: "/invoice-new" });
       return;
     }
@@ -102,10 +107,22 @@ function RiskScore() {
     <ProtectedRoute>
       <AppShell role="Supplier" who="Umucyo Fresh Produce Ltd">
         <div className="mx-auto max-w-2xl">
-          <h1 className="text-3xl font-extrabold tracking-tight">Scoring invoice {draft.number}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {draft.buyer} · {formatRWF(draft.amount)} · due {draft.dueDate}
-          </p>
+          {invoiceQuery.isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          ) : (
+            <>
+              <h1 className="text-3xl font-extrabold tracking-tight">
+                Scoring invoice {invoiceQuery.data?.number}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {invoiceQuery.data?.buyer} · {formatRWF(invoiceQuery.data?.amount ?? 0)} · due{" "}
+                {invoiceQuery.data?.dueDate}
+              </p>
+            </>
+          )}
 
           {scoreMutation.isError && (
             <section className="panel mt-6 flex flex-col items-center gap-3 p-6 text-center">
@@ -202,11 +219,17 @@ function RiskScore() {
                 </div>
               </dl>
 
+              {/* Full navigation, not router.navigate() — see supplier-dashboard.tsx
+                  InvoiceRow for why: the destination page auto-fires a mutation on
+                  mount that gets stuck rendering "pending" forever after a client-side
+                  route transition, even though the request completes successfully. */}
               <Button
+                asChild
                 className="h-12 w-full text-base font-semibold shadow-[var(--shadow-glow)]"
-                onClick={() => navigate({ to: "/payout" })}
               >
-                <Smartphone className="size-5" /> Confirm &amp; Receive via MoMo
+                <a href={`/payout?id=${id}`}>
+                  <Smartphone className="size-5" /> Confirm &amp; Receive via MoMo
+                </a>
               </Button>
             </section>
           )}

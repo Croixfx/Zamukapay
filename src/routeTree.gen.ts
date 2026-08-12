@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as BuyerDashboardRouteImport } from './routes/buyer-dashboard'
 import { Route as InvoiceNewRouteImport } from './routes/invoice-new'
 import { Route as LoginRouteImport } from './routes/login'
@@ -21,6 +22,11 @@ import { Route as BuyerConfirmIdRouteImport } from './routes/buyer-confirm.$id'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/admin-dashboard',
+  path: '/admin-dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuyerDashboardRoute = BuyerDashboardRouteImport.update({
@@ -61,6 +67,7 @@ const BuyerConfirmIdRoute = BuyerConfirmIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/buyer-dashboard': typeof BuyerDashboardRoute
   '/invoice-new': typeof InvoiceNewRoute
   '/login': typeof LoginRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/buyer-dashboard': typeof BuyerDashboardRoute
   '/invoice-new': typeof InvoiceNewRoute
   '/login': typeof LoginRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/buyer-dashboard': typeof BuyerDashboardRoute
   '/invoice-new': typeof InvoiceNewRoute
   '/login': typeof LoginRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin-dashboard'
     | '/buyer-dashboard'
     | '/invoice-new'
     | '/login'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin-dashboard'
     | '/buyer-dashboard'
     | '/invoice-new'
     | '/login'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin-dashboard'
     | '/buyer-dashboard'
     | '/invoice-new'
     | '/login'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminDashboardRoute: typeof AdminDashboardRoute
   BuyerDashboardRoute: typeof BuyerDashboardRoute
   InvoiceNewRoute: typeof InvoiceNewRoute
   LoginRoute: typeof LoginRoute
@@ -141,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-dashboard': {
+      id: '/admin-dashboard'
+      path: '/admin-dashboard'
+      fullPath: '/admin-dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/buyer-dashboard': {
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminDashboardRoute: AdminDashboardRoute,
   BuyerDashboardRoute: BuyerDashboardRoute,
   InvoiceNewRoute: InvoiceNewRoute,
   LoginRoute: LoginRoute,

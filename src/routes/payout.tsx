@@ -6,9 +6,10 @@ import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api";
-import { confirmMomoPayout, draft, formatRWF } from "@/lib/zamuka-data";
+import { confirmMomoPayout, formatRWF } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/payout")({
+  validateSearch: (search: Record<string, unknown>) => ({ id: Number(search["id"]) }),
   head: () => ({
     meta: [
       { title: "MoMo Payout Confirmed — ZamukaPay" },
@@ -35,10 +36,11 @@ function formatTimestamp(iso: string) {
 }
 
 function Payout() {
+  const { id } = Route.useSearch();
   const navigate = useNavigate();
 
   const payoutMutation = useMutation({
-    mutationFn: () => confirmMomoPayout(draft.invoiceId as number),
+    mutationFn: () => confirmMomoPayout(id),
   });
 
   // Guards against firing the mutation twice for one mount (e.g. React dev
@@ -47,7 +49,7 @@ function Payout() {
   const hasStarted = useRef(false);
 
   useEffect(() => {
-    if (draft.invoiceId == null) {
+    if (!id || Number.isNaN(id)) {
       navigate({ to: "/invoice-new" });
       return;
     }
