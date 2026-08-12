@@ -6,7 +6,7 @@ DEBUG = False
 
 SECRET_KEY = env("SECRET_KEY")
 
-ALLOWED_HOSTS = ["*.koyeb.app", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = [".onrender.com", ".koyeb.app", "localhost", "127.0.0.1"]
 
 DATABASES = {
     "default": dj_database_url.config(
