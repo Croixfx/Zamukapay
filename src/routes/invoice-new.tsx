@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getApiErrorMessage, getApiFieldErrors } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { draft, formatRWF, getBuyers, submitInvoice } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/invoice-new")({
@@ -45,6 +46,7 @@ function InvoiceNew() {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState(draft.fileName);
 
+  const meQuery = useQuery({ queryKey: ["auth-me"], queryFn: getCurrentUser });
   const buyersQuery = useQuery({ queryKey: ["buyers"], queryFn: getBuyers });
 
   const numericAmount = Number(amount) || 0;
@@ -63,7 +65,7 @@ function InvoiceNew() {
     <ProtectedRoute>
       <AppShell
         role="Supplier"
-        who="Umucyo Fresh Produce Ltd"
+        who={meQuery.data?.company_name ?? "…"}
         nav={[
           { to: "/supplier-dashboard", label: "Dashboard" },
           { to: "/invoice-new", label: "New invoice" },

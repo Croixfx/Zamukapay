@@ -13,6 +13,7 @@ import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrentUser } from "@/lib/auth";
 import {
   formatRWF,
   getSupplierInvoices,
@@ -51,6 +52,7 @@ export const Route = createFileRoute("/supplier-dashboard")({
 });
 
 function SupplierDashboard() {
+  const meQuery = useQuery({ queryKey: ["auth-me"], queryFn: getCurrentUser });
   const statsQuery = useQuery({ queryKey: ["supplier-stats"], queryFn: getSupplierStats });
   const invoicesQuery = useQuery({ queryKey: ["supplier-invoices"], queryFn: getSupplierInvoices });
   const transactionsQuery = useQuery({ queryKey: ["transactions"], queryFn: getTransactions });
@@ -86,7 +88,7 @@ function SupplierDashboard() {
     <ProtectedRoute>
       <AppShell
         role="Supplier"
-        who="Umucyo Fresh Produce Ltd"
+        who={meQuery.data?.company_name ?? "…"}
         nav={[
           { to: "/supplier-dashboard", label: "Dashboard" },
           { to: "/invoice-new", label: "New invoice" },
@@ -94,7 +96,13 @@ function SupplierDashboard() {
       >
         <div className="flex flex-wrap items-end justify-between gap-4 rise-in">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight">Muraho, Aline 👋</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight">
+              Muraho
+              {meQuery.data
+                ? `, ${meQuery.data.email.split("@")[0]!.replace(/^./, (c) => c.toUpperCase())}`
+                : ""}{" "}
+              👋
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Here is how your working capital is looking this month.
             </p>

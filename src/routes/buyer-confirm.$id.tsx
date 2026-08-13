@@ -6,6 +6,7 @@ import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { confirmInvoice, disputeInvoice, getInvoice, formatRWF } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/buyer-confirm/$id")({
@@ -29,6 +30,7 @@ function BuyerConfirm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const meQuery = useQuery({ queryKey: ["auth-me"], queryFn: getCurrentUser });
   const invoiceQuery = useQuery({ queryKey: ["invoice", id], queryFn: () => getInvoice(id) });
 
   const confirmMutation = useMutation({
@@ -54,7 +56,7 @@ function BuyerConfirm() {
     <ProtectedRoute>
       <AppShell
         role="Buyer"
-        who="Simba Supermarket Ltd"
+        who={meQuery.data?.company_name ?? "…"}
         nav={[{ to: "/buyer-dashboard", label: "Confirmations" }]}
       >
         <div className="mx-auto max-w-lg rise-in">

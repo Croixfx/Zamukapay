@@ -7,6 +7,7 @@ import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { formatRWF, getInvoice, scoreInvoice, type RiskCheck } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/risk-score")({
@@ -49,6 +50,7 @@ function RiskScore() {
   const [step, setStep] = useState(0);
   const [displayScore, setDisplayScore] = useState(0);
 
+  const meQuery = useQuery({ queryKey: ["auth-me"], queryFn: getCurrentUser });
   const invoiceQuery = useQuery({ queryKey: ["invoice", id], queryFn: () => getInvoice(id) });
 
   const scoreMutation = useMutation({
@@ -60,16 +62,23 @@ function RiskScore() {
   // can otherwise race on the backend.
   const hasStarted = useRef(false);
 
+  // This page is reached via a full page reload (see the InvoiceRow comment
+  // in supplier-dashboard.tsx), which restores the session from the
+  // browser-wide httpOnly refresh cookie. If a different account was signed
+  // into another tab more recently, that reload silently restores THAT
+  // session instead — so wait for the real current user and only auto-fire
+  // the scoring mutation once we know it's actually a supplier.
   useEffect(() => {
     if (!id || Number.isNaN(id)) {
       navigate({ to: "/invoice-new" });
       return;
     }
-    if (hasStarted.current) return;
+    if (meQuery.isLoading || hasStarted.current) return;
+    if (meQuery.data && meQuery.data.role !== "SUPPLIER") return;
     hasStarted.current = true;
     scoreMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [meQuery.isLoading, meQuery.data]);
 
   const result = scoreMutation.data;
   const checks = result?.checks ?? PENDING_CHECKS;
@@ -103,10 +112,26 @@ function RiskScore() {
   const circumference = 2 * Math.PI * 52;
   const badge = result ? RECOMMENDATION_BADGE[result.recommendation] : null;
 
+  const wrongRole = !meQuery.isLoading && !!meQuery.data && meQuery.data.role !== "SUPPLIER";
+
   return (
     <ProtectedRoute>
-      <AppShell role="Supplier" who="Umucyo Fresh Produce Ltd">
+      <AppShell role="Supplier" who={meQuery.data?.company_name ?? "…"}>
         <div className="mx-auto max-w-2xl">
+          {wrongRole && (
+            <section className="panel mb-6 flex flex-col items-center gap-3 p-6 text-center">
+              <AlertTriangle className="size-8 text-destructive" />
+              <p className="text-sm text-destructive">
+                You're currently signed in as {meQuery.data?.company_name} (
+                {meQuery.data?.role.toLowerCase()}). Sign in as the supplier who owns this invoice
+                to request an advance.
+              </p>
+              <Button variant="outline" onClick={() => navigate({ to: "/login" })}>
+                Go to sign in
+              </Button>
+            </section>
+          )}
+
           {invoiceQuery.isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-8 w-2/3" />
@@ -134,7 +159,7 @@ function RiskScore() {
             </section>
           )}
 
-          {!scoreMutation.isError && (
+          {!wrongRole && !scoreMutation.isError && (
             <section className="panel mt-6 divide-y divide-border/70 p-2">
               {checks.map((check, i) => {
                 const complete = !!result && step > i;

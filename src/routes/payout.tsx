@@ -1,11 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { confirmMomoPayout, formatRWF } from "@/lib/zamuka-data";
 
 export const Route = createFileRoute("/payout")({
@@ -38,6 +39,7 @@ function formatTimestamp(iso: string) {
 function Payout() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
+  const meQuery = useQuery({ queryKey: ["auth-me"], queryFn: getCurrentUser });
 
   const payoutMutation = useMutation({
     mutationFn: () => confirmMomoPayout(id),
@@ -48,22 +50,43 @@ function Payout() {
   // can otherwise race on the backend.
   const hasStarted = useRef(false);
 
+  // Reached via a full page reload, which restores the session from the
+  // browser-wide httpOnly refresh cookie — if a different account signed in
+  // more recently in another tab, that reload silently picks up THAT
+  // session. Wait for the real current user and don't fire as the wrong role.
   useEffect(() => {
     if (!id || Number.isNaN(id)) {
       navigate({ to: "/invoice-new" });
       return;
     }
-    if (hasStarted.current) return;
+    if (meQuery.isLoading || hasStarted.current) return;
+    if (meQuery.data && meQuery.data.role !== "SUPPLIER") return;
     hasStarted.current = true;
     payoutMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [meQuery.isLoading, meQuery.data]);
+
+  const wrongRole = !meQuery.isLoading && !!meQuery.data && meQuery.data.role !== "SUPPLIER";
 
   return (
     <ProtectedRoute>
-      <AppShell role="Supplier" who="Umucyo Fresh Produce Ltd">
+      <AppShell role="Supplier" who={meQuery.data?.company_name ?? "…"}>
         <div className="mx-auto max-w-lg text-center rise-in">
-          {(payoutMutation.isPending || payoutMutation.isIdle) && (
+          {wrongRole && (
+            <div className="panel flex flex-col items-center gap-3 p-8">
+              <AlertTriangle className="size-10 text-destructive" />
+              <p className="text-sm text-destructive">
+                You're currently signed in as {meQuery.data?.company_name} (
+                {meQuery.data?.role.toLowerCase()}). Sign in as the supplier who owns this invoice
+                to receive the payout.
+              </p>
+              <Button variant="outline" onClick={() => navigate({ to: "/login" })}>
+                Go to sign in
+              </Button>
+            </div>
+          )}
+
+          {!wrongRole && (payoutMutation.isPending || payoutMutation.isIdle) && (
             <div className="flex flex-col items-center gap-3 py-16">
               <Loader2 className="size-8 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">Sending your advance via MoMo…</p>
