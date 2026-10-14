@@ -1,0 +1,29 @@
+{
+  "features": [
+    "buyer_payment_rate",
+    "relationship_months",
+    "invoice_vs_avg",
+    "buyer_verified",
+    "days_to_due",
+    "prior_invoices",
+    "avg_days_late"
+  ],
+  "model_type": "Random Forest",
+  "n_estimators": 200,
+  "test_auc": 0.674,
+  "thresholds": {
+    "APPROVE": 70,
+    "REVIEW": 50,
+    "DECLINE": 0
+  },
+  "advance_pcts": {
+    "APPROVE": 0.8,
+    "REVIEW": 0.6,
+    "DECLINE": 0.0
+  },
+  "fee_pcts": {
+    "APPROVE": 0.04,
+    "REVIEW": 0.06,
+    "DECLINE": 0.0
+  }
+}
